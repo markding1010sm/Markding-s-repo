@@ -8,3 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# ML artifacts
+data/
+checkpoints/
+*.pth
+*.pt

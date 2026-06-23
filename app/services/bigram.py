@@ -1,5 +1,5 @@
-import re
 import random
+import re
 from collections import Counter, defaultdict
 
 
@@ -41,7 +41,7 @@ class BigramModel:
 
             next_word = random.choices(
                 list(next_words.keys()),
-                weights=list(next_words.values())
+                weights=list(next_words.values()),
             )[0]
 
             generated_words.append(next_word)

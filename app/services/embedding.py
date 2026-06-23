@@ -3,7 +3,6 @@ import spacy
 
 class EmbeddingModel:
     def __init__(self):
-        # Same model as Module 1 Practical 3
         self.nlp = spacy.load("en_core_web_lg")
 
     def calculate_embedding(self, input_word):
