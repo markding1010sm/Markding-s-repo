@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+import torch.optim as optim
 from tqdm import tqdm
 
 from helper_lib.checkpoints import save_checkpoint
@@ -132,6 +133,111 @@ def train_vae_model(
             optimizer,
             epoch,
             avg_loss,
+            accuracy=0.0,
+            checkpoint_dir=checkpoint_dir,
+        )
+
+    return model, history
+
+
+class _GANOptimizers:
+    def __init__(self, generator_optimizer, critic_optimizer):
+        self.generator_optimizer = generator_optimizer
+        self.critic_optimizer = critic_optimizer
+
+    def state_dict(self):
+        return {
+            "generator_optimizer": self.generator_optimizer.state_dict(),
+            "critic_optimizer": self.critic_optimizer.state_dict(),
+        }
+
+
+def train_gan(
+    model,
+    data_loader,
+    criterion=None,
+    optimizer=None,
+    device="cpu",
+    epochs=10,
+    lr=5e-5,
+    n_critic=5,
+    clip_value=0.01,
+    checkpoint_dir="checkpoints",
+):
+    model.to(device)
+    model.train()
+    history = []
+
+    if optimizer is None:
+        generator_optimizer = optim.RMSprop(model.generator.parameters(), lr=lr)
+        critic_optimizer = optim.RMSprop(model.critic.parameters(), lr=lr)
+    elif isinstance(optimizer, dict):
+        generator_optimizer = optimizer["generator"]
+        critic_optimizer = optimizer["critic"]
+    else:
+        generator_optimizer, critic_optimizer = optimizer
+
+    for epoch in range(1, epochs + 1):
+        running_critic_loss = 0.0
+        running_generator_loss = 0.0
+        batches = 0
+
+        for real, _ in tqdm(data_loader, desc=f"GAN Epoch {epoch}/{epochs}"):
+            real = real.to(device)
+            batch_size = real.size(0)
+
+            for _ in range(n_critic):
+                noise = torch.randn(
+                    batch_size,
+                    model.latent_dim,
+                    1,
+                    1,
+                    device=device,
+                )
+                fake = model.generator(noise).detach()
+                critic_real = model.critic(real).mean()
+                critic_fake = model.critic(fake).mean()
+                critic_loss = -(critic_real - critic_fake)
+
+                critic_optimizer.zero_grad()
+                critic_loss.backward()
+                critic_optimizer.step()
+
+                for parameter in model.critic.parameters():
+                    parameter.data.clamp_(-clip_value, clip_value)
+
+            noise = torch.randn(
+                batch_size,
+                model.latent_dim,
+                1,
+                1,
+                device=device,
+            )
+            fake = model.generator(noise)
+            generator_loss = -model.critic(fake).mean()
+
+            generator_optimizer.zero_grad()
+            generator_loss.backward()
+            generator_optimizer.step()
+
+            running_critic_loss += critic_loss.item()
+            running_generator_loss += generator_loss.item()
+            batches += 1
+
+        avg_critic_loss = running_critic_loss / batches if batches else 0.0
+        avg_generator_loss = running_generator_loss / batches if batches else 0.0
+        metrics = {
+            "epoch": epoch,
+            "critic_loss": avg_critic_loss,
+            "generator_loss": avg_generator_loss,
+        }
+        history.append(metrics)
+
+        save_checkpoint(
+            model,
+            _GANOptimizers(generator_optimizer, critic_optimizer),
+            epoch,
+            avg_generator_loss,
             accuracy=0.0,
             checkpoint_dir=checkpoint_dir,
         )

@@ -126,6 +126,129 @@ class VAE(nn.Module):
         return reconstructed, mu, logvar
 
 
+class Critic(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(512, 1, kernel_size=4, stride=1, padding=0, bias=False),
+            nn.Flatten(),
+        )
+
+    def forward(self, x):
+        return self.network(x)
+
+
+class Generator(nn.Module):
+    def __init__(self, latent_dim=128):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.z_dim = latent_dim
+        self.network = nn.Sequential(
+            nn.ConvTranspose2d(
+                latent_dim,
+                512,
+                kernel_size=4,
+                stride=1,
+                padding=0,
+                bias=False,
+            ),
+            nn.BatchNorm2d(512, momentum=0.9),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(256, momentum=0.9),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(128, momentum=0.9),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(64, momentum=0.9),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(64, 3, kernel_size=4, stride=2, padding=1),
+            nn.Tanh(),
+        )
+
+    def forward(self, z):
+        z = z.view(z.size(0), self.latent_dim, 1, 1)
+        return self.network(z)
+
+
+class GAN(nn.Module):
+    def __init__(self, latent_dim=128):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.z_dim = latent_dim
+        self.generator = Generator(latent_dim=latent_dim)
+        self.critic = Critic()
+
+    def forward(self, z):
+        return self.generator(z)
+
+
+class MNISTCritic(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(1, 64, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(128 * 7 * 7, 1),
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        return self.classifier(x)
+
+
+class MNISTGenerator(nn.Module):
+    def __init__(self, latent_dim=100):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.z_dim = latent_dim
+        self.project = nn.Linear(latent_dim, 7 * 7 * 128)
+        self.network = nn.Sequential(
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(64, 1, kernel_size=4, stride=2, padding=1),
+            nn.Tanh(),
+        )
+
+    def forward(self, z):
+        z = z.view(z.size(0), self.latent_dim)
+        z = self.project(z)
+        z = z.view(z.size(0), 128, 7, 7)
+        return self.network(z)
+
+
+class MNISTGAN(nn.Module):
+    def __init__(self, latent_dim=100):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.z_dim = latent_dim
+        self.generator = MNISTGenerator(latent_dim=latent_dim)
+        self.critic = MNISTCritic()
+
+    def forward(self, z):
+        return self.generator(z)
+
+
 def get_model(model_name, num_classes=10, latent_dim=128):
     normalized_name = model_name.strip().lower()
 
@@ -137,7 +260,12 @@ def get_model(model_name, num_classes=10, latent_dim=128):
         return EnhancedCNN(num_classes=num_classes)
     if normalized_name == "vae":
         return VAE(latent_dim=latent_dim)
+    if normalized_name == "gan":
+        return GAN(latent_dim=latent_dim)
+    if normalized_name == "mnistgan":
+        return MNISTGAN(latent_dim=latent_dim)
 
     raise ValueError(
-        "Unknown model_name. Expected one of: FCNN, CNN, EnhancedCNN, VAE."
+        "Unknown model_name. Expected one of: FCNN, CNN, EnhancedCNN, VAE, GAN, "
+        "MNISTGAN."
     )

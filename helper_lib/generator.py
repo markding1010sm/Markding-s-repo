@@ -9,8 +9,18 @@ def generate_samples(model, device, num_samples=10, output_path=None):
     model.eval()
 
     with torch.no_grad():
-        z = torch.randn(num_samples, model.latent_dim, device=device)
-        samples = model.decode(z).cpu()
+        if hasattr(model, "decode"):
+            z = torch.randn(num_samples, model.latent_dim, device=device)
+            samples = model.decode(z).cpu()
+        elif hasattr(model, "generator"):
+            z = torch.randn(num_samples, model.latent_dim, 1, 1, device=device)
+            samples = model.generator(z).cpu()
+            samples = (samples + 1) / 2
+        else:
+            latent_dim = getattr(model, "latent_dim", getattr(model, "z_dim"))
+            z = torch.randn(num_samples, latent_dim, 1, 1, device=device)
+            samples = model(z).cpu()
+            samples = (samples + 1) / 2
 
     grid_cols = min(num_samples, 5)
     grid_rows = math.ceil(num_samples / grid_cols)
@@ -27,8 +37,11 @@ def generate_samples(model, device, num_samples=10, output_path=None):
         if index >= num_samples:
             continue
 
-        image = samples[index].permute(1, 2, 0).clamp(0, 1).numpy()
-        axis.imshow(image)
+        image = samples[index].clamp(0, 1)
+        if image.size(0) == 1:
+            axis.imshow(image.squeeze(0).numpy(), cmap="gray")
+        else:
+            axis.imshow(image.permute(1, 2, 0).numpy())
 
     fig.tight_layout()
 

@@ -10,6 +10,10 @@ class TextGenerationResponse(BaseModel):
     generated_text: str
 
 
+class ImageGenerationRequest(BaseModel):
+    num_images: int = Field(default=16, ge=1, le=64)
+
+
 class EmbeddingRequest(BaseModel):
     word: str
 
