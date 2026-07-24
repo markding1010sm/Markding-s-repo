@@ -2,6 +2,10 @@ from functools import lru_cache
 
 from app.services.classifier import ClassifierModel
 from app.services.bigram import BigramModel
+from app.services.cifar10_generation import (
+    CIFAR10DiffusionGenerator,
+    CIFAR10EnergyGenerator,
+)
 from app.services.embedding import EmbeddingModel
 from app.services.image_generation import MNISTImageGenerator
 from app.services.rnn import RNNTextGenerator
@@ -38,3 +42,13 @@ def get_embedding_model() -> EmbeddingModel:
 @lru_cache
 def get_classifier_model() -> ClassifierModel:
     return ClassifierModel()
+
+
+@lru_cache
+def get_cifar10_energy_generator() -> CIFAR10EnergyGenerator:
+    return CIFAR10EnergyGenerator()
+
+
+@lru_cache
+def get_cifar10_diffusion_generator() -> CIFAR10DiffusionGenerator:
+    return CIFAR10DiffusionGenerator()

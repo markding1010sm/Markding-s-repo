@@ -14,6 +14,10 @@ class ImageGenerationRequest(BaseModel):
     num_images: int = Field(default=16, ge=1, le=64)
 
 
+class CIFARImageGenerationRequest(BaseModel):
+    num_images: int = Field(default=8, ge=1, le=16)
+
+
 class EmbeddingRequest(BaseModel):
     word: str
 

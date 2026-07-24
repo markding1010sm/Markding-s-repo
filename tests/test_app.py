@@ -3,6 +3,8 @@ from io import BytesIO
 from PIL import Image
 
 from app.dependencies import get_classifier_model
+from app.dependencies import get_cifar10_diffusion_generator
+from app.dependencies import get_cifar10_energy_generator
 from app.dependencies import get_embedding_model
 from app.dependencies import get_mnist_image_generator
 from app.dependencies import get_rnn_model
@@ -62,6 +64,27 @@ def override_mnist_image_generator():
 
 def override_missing_checkpoint_image_generator():
     return MissingCheckpointImageGenerator()
+
+
+class FakeCIFAR10Generator:
+    def generate_images(self, num_images):
+        image = Image.new("RGB", (2, 2), color="blue")
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+
+class MissingCIFAR10CheckpointGenerator:
+    def generate_images(self, num_images):
+        raise RuntimeError("CIFAR-10 checkpoint not found. Run training first.")
+
+
+def override_cifar10_generator():
+    return FakeCIFAR10Generator()
+
+
+def override_missing_cifar10_generator():
+    return MissingCIFAR10CheckpointGenerator()
 
 
 client = TestClient(app)
@@ -186,3 +209,50 @@ def test_classify_returns_prediction():
         "class_index": 3,
         "confidence": 0.9,
     }
+
+
+def test_generate_energy_returns_png_image():
+    app.dependency_overrides[
+        get_cifar10_energy_generator
+    ] = override_cifar10_generator
+
+    response = client.post("/generate_energy", json={"num_images": 4})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content.startswith(b"\x89PNG")
+
+
+def test_generate_diffusion_returns_png_image():
+    app.dependency_overrides[
+        get_cifar10_diffusion_generator
+    ] = override_cifar10_generator
+
+    response = client.post("/generate_diffusion", json={"num_images": 4})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content.startswith(b"\x89PNG")
+
+
+def test_cifar10_generation_rejects_too_many_images():
+    response = client.post("/generate_energy", json={"num_images": 17})
+
+    assert response.status_code == 422
+
+
+def test_cifar10_generation_returns_503_for_missing_checkpoint():
+    app.dependency_overrides[
+        get_cifar10_diffusion_generator
+    ] = override_missing_cifar10_generator
+
+    response = client.post("/generate_diffusion", json={"num_images": 4})
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert "checkpoint not found" in response.json()["detail"]

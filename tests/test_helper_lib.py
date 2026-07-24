@@ -6,14 +6,32 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from app.services.rnn import RNNTextGenerator
 from helper_lib.checkpoints import load_checkpoint, save_checkpoint
-from helper_lib.generator import generate_samples
-from helper_lib.model import get_model
-from helper_lib.trainer import train_gan, train_vae_model, vae_loss_function
+from helper_lib.generator import generate_energy_samples, generate_samples
+from helper_lib.model import (
+    get_model,
+    offset_cosine_diffusion_schedule,
+)
+from helper_lib.trainer import (
+    train_diffusion,
+    train_energy_model,
+    train_gan,
+    train_vae_model,
+    vae_loss_function,
+)
 
 
 @pytest.mark.parametrize(
     "model_name",
-    ["FCNN", "CNN", "EnhancedCNN", "VAE", "GAN", "MNISTGAN"],
+    [
+        "FCNN",
+        "CNN",
+        "EnhancedCNN",
+        "VAE",
+        "GAN",
+        "MNISTGAN",
+        "Energy",
+        "Diffusion",
+    ],
 )
 def test_get_model_returns_torch_module(model_name):
     model = get_model(model_name)
@@ -307,3 +325,107 @@ def test_rnn_text_generator_returns_requested_word_count():
     generated_text = model.generate_text("the", length=4)
 
     assert len(generated_text.split()) == 4
+
+
+def test_energy_model_scores_cifar10_images():
+    model = get_model("Energy")
+
+    energies = model(torch.randn(2, 3, 32, 32))
+
+    assert energies.shape == (2, 1)
+
+
+def test_energy_langevin_sampling_preserves_image_shape_and_range():
+    model = get_model("Energy")
+    initial_images = (torch.rand(2, 3, 32, 32) * 2) - 1
+
+    samples = generate_energy_samples(
+        model,
+        initial_images,
+        steps=2,
+        step_size=1.0,
+        noise_std=0.001,
+    )
+
+    assert samples.shape == initial_images.shape
+    assert samples.min() >= -1
+    assert samples.max() <= 1
+
+
+def test_diffusion_model_predicts_noise_and_generates_images():
+    model = get_model("Diffusion")
+    images = torch.randn(2, 3, 32, 32)
+    noise_variances = torch.rand(2, 1, 1, 1)
+
+    predicted_noise = model(images, noise_variances)
+    samples = model.generate(num_images=2, diffusion_steps=2)
+
+    assert predicted_noise.shape == images.shape
+    assert samples.shape == images.shape
+    assert samples.min() >= 0
+    assert samples.max() <= 1
+
+
+def test_offset_cosine_schedule_returns_valid_rates():
+    diffusion_times = torch.tensor([0.0, 0.5, 1.0]).view(-1, 1, 1, 1)
+
+    noise_rates, signal_rates = offset_cosine_diffusion_schedule(
+        diffusion_times
+    )
+
+    assert noise_rates.shape == diffusion_times.shape
+    assert signal_rates.shape == diffusion_times.shape
+    assert torch.all(noise_rates >= 0)
+    assert torch.all(noise_rates <= 1)
+    assert torch.all(signal_rates >= 0)
+    assert torch.all(signal_rates <= 1)
+
+
+def test_train_energy_model_runs_one_batch_and_saves_checkpoint(tmp_path):
+    model = get_model("Energy")
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    inputs = (torch.rand(2, 3, 32, 32) * 2) - 1
+    labels = torch.zeros(2, dtype=torch.long)
+    data_loader = DataLoader(TensorDataset(inputs, labels), batch_size=2)
+
+    trained_model, history, _ = train_energy_model(
+        model,
+        data_loader,
+        optimizer,
+        epochs=1,
+        langevin_steps=1,
+        checkpoint_dir=tmp_path,
+        max_batches=1,
+    )
+
+    assert trained_model is model
+    assert history[0]["epoch"] == 1
+    assert (tmp_path / "energy_epoch_001.pth").exists()
+    assert (tmp_path / "cifar10_energy.pth").exists()
+
+
+def test_train_diffusion_runs_one_batch_and_saves_checkpoint(tmp_path):
+    model = get_model("Diffusion")
+    model.set_normalizer(
+        (0.4914, 0.4822, 0.4465),
+        (0.2470, 0.2435, 0.2616),
+    )
+    optimizer = optim.AdamW(model.network.parameters(), lr=1e-3)
+    inputs = torch.rand(2, 3, 32, 32)
+    labels = torch.zeros(2, dtype=torch.long)
+    data_loader = DataLoader(TensorDataset(inputs, labels), batch_size=2)
+
+    trained_model, history = train_diffusion(
+        model,
+        data_loader,
+        nn.L1Loss(),
+        optimizer,
+        epochs=1,
+        checkpoint_dir=tmp_path,
+        max_batches=1,
+    )
+
+    assert trained_model is model
+    assert history[0]["epoch"] == 1
+    assert (tmp_path / "diffusion_epoch_001.pth").exists()
+    assert (tmp_path / "cifar10_diffusion.pth").exists()

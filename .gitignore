@@ -11,6 +11,10 @@ wheels/
 
 # ML artifacts
 data/
-checkpoints/
+checkpoints/*
 *.pth
 *.pt
+!checkpoints/cifar10_cnn.pth
+!checkpoints/mnist_gan.pth
+!checkpoints/cifar10_energy.pth
+!checkpoints/cifar10_diffusion.pth
